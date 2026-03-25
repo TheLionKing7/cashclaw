@@ -1,5 +1,5 @@
 import WebSocket from "ws";
-import type { CashClawConfig } from "./config.js";
+import type { FiveClawConfig } from "./config.js";
 import type { LLMProvider } from "./llm/types.js";
 import type { Task } from "./moltlaunch/types.js";
 import * as cli from "./moltlaunch/cli.js";
@@ -7,6 +7,8 @@ import { runAgentLoop, type LoopResult } from "./loop/index.js";
 import { runStudySession } from "./loop/study.js";
 import { storeFeedback } from "./memory/feedback.js";
 import { appendLog } from "./memory/log.js";
+import { initOversight, emitOversightEvent } from "./oversight/index.js";
+import { retainMemory } from "./memory/memsight.js";
 
 export interface HeartbeatState {
   running: boolean;
@@ -42,9 +44,10 @@ const WS_POLL_INTERVAL_MS = 120_000;
 const TASK_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000;
 
 export function createHeartbeat(
-  config: CashClawConfig,
+  config: FiveClawConfig,
   llm: LLMProvider,
 ) {
+  initOversight(config);
   const state: HeartbeatState = {
     running: false,
     activeTasks: new Map(),
@@ -202,6 +205,7 @@ export function createHeartbeat(
 
     emit({ type: "loop_start", taskId: task.id, message: `Agent loop started (${task.status})` });
     appendLog(`Agent loop started for ${task.id} (${task.status})`);
+    emitOversightEvent({ type: "task_start", taskId: task.id, agentId: "fiveclaw", details: { status: task.status, task: task.task?.slice(0, 200) } });
 
     runAgentLoop(llm, task, config)
       .then((result: LoopResult) => {
@@ -212,6 +216,14 @@ export function createHeartbeat(
           message: `Loop done in ${result.turns} turn(s): [${toolNames}]`,
         });
         appendLog(`Loop done for ${task.id}: ${result.turns} turns, tools=[${toolNames}]`);
+        emitOversightEvent({ type: "task_complete", taskId: task.id, agentId: "fiveclaw", details: { turns: result.turns, tools: toolNames, tokens: result.usage } });
+
+        // Retain task outcome in MemSight for future recall
+        retainMemory({
+          content: `Task completed: "${task.task?.slice(0, 300)}". Tools used: ${toolNames}. Reasoning: ${result.reasoning.slice(0, 500)}`,
+          context: `taskId=${task.id} turns=${result.turns}`,
+          timestamp: new Date().toISOString(),
+        });
 
         for (const tc of result.toolCalls) {
           emit({
@@ -225,6 +237,7 @@ export function createHeartbeat(
         const msg = err instanceof Error ? err.message : String(err);
         emit({ type: "error", taskId: task.id, message: `Loop error: ${msg}` });
         appendLog(`Loop error for ${task.id}: ${msg}`);
+        emitOversightEvent({ type: "task_error", taskId: task.id, agentId: "fiveclaw", details: { error: msg } });
       })
       .finally(() => {
         processing.delete(task.id);
@@ -338,6 +351,7 @@ export function createHeartbeat(
         message: `Study complete: ${result.topic} (${result.tokensUsed} tokens)`,
       });
       appendLog(`Study session complete: ${result.topic} — ${result.insight.slice(0, 100)}`);
+      emitOversightEvent({ type: "study_complete", agentId: "fiveclaw", details: { topic: result.topic, tokensUsed: result.tokensUsed, insight: result.insight.slice(0, 200) } });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       emit({ type: "error", message: `Study error: ${msg}` });
@@ -358,6 +372,7 @@ export function createHeartbeat(
       state.lastStudyTime = Date.now();
     }
     appendLog("Heartbeat started");
+    emitOversightEvent({ type: "agent_start", agentId: "fiveclaw", details: { agentId: config.agentId } });
     connectWs();
     void tick();
   }
@@ -370,6 +385,7 @@ export function createHeartbeat(
     }
     disconnectWs();
     appendLog("Heartbeat stopped");
+    emitOversightEvent({ type: "agent_stop", agentId: "fiveclaw", details: { totalPolls: state.totalPolls, totalStudySessions: state.totalStudySessions } });
   }
 
   return { state, start, stop, onEvent };

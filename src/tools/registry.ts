@@ -1,5 +1,5 @@
 import type { ToolDefinition } from "../llm/types.js";
-import type { CashClawConfig } from "../config.js";
+import type { FiveClawConfig } from "../config.js";
 import type { Tool, ToolContext, ToolResult } from "./types.js";
 import {
   readTask,
@@ -15,6 +15,7 @@ import {
   readFeedbackHistory,
   memorySearch,
   logActivity,
+  executeWithXDragonTool,
 } from "./utility.js";
 import { agentcashFetch, agentcashBalance } from "./agentcash.js";
 
@@ -30,6 +31,7 @@ const BASE_TOOLS: Tool[] = [
   readFeedbackHistory,
   memorySearch,
   logActivity,
+  executeWithXDragonTool,  // xDragon cloud LLM execution
 ];
 
 const AGENTCASH_TOOLS: Tool[] = [
@@ -38,10 +40,10 @@ const AGENTCASH_TOOLS: Tool[] = [
 ];
 
 // Memoize by config reference to avoid rebuilding on every tool call
-let cachedConfig: CashClawConfig | null = null;
+let cachedConfig: FiveClawConfig | null = null;
 let cachedToolMap: Map<string, Tool> | null = null;
 
-function buildToolMap(config: CashClawConfig): Map<string, Tool> {
+function buildToolMap(config: FiveClawConfig): Map<string, Tool> {
   if (cachedConfig === config && cachedToolMap) return cachedToolMap;
   const tools = config.agentCashEnabled
     ? [...BASE_TOOLS, ...AGENTCASH_TOOLS]
@@ -51,7 +53,7 @@ function buildToolMap(config: CashClawConfig): Map<string, Tool> {
   return cachedToolMap;
 }
 
-export function getToolDefinitions(config: CashClawConfig): ToolDefinition[] {
+export function getToolDefinitions(config: FiveClawConfig): ToolDefinition[] {
   const toolMap = buildToolMap(config);
   return [...toolMap.values()].map((t) => t.definition);
 }

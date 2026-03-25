@@ -1,10 +1,12 @@
 import type { LLMProvider, LLMMessage, LLMResponse, ToolUseBlock, ToolResultBlock } from "../llm/types.js";
-import type { CashClawConfig } from "../config.js";
+import type { FiveClawConfig } from "../config.js";
 import type { Task } from "../moltlaunch/types.js";
 import type { ToolContext } from "../tools/types.js";
 import { getToolDefinitions, executeTool } from "../tools/registry.js";
 import { buildSystemPrompt } from "./prompt.js";
 import { buildTaskContext } from "./context.js";
+import { compileIdentity } from "../identity/index.js";
+import { recallMemories } from "../memory/memsight.js";
 
 const DEFAULT_MAX_TURNS = 10;
 
@@ -25,14 +27,28 @@ export interface LoopResult {
 export async function runAgentLoop(
   llm: LLMProvider,
   task: Task,
-  config: CashClawConfig,
+  config: FiveClawConfig,
 ): Promise<LoopResult> {
   const maxTurns = config.maxLoopTurns ?? DEFAULT_MAX_TURNS;
   const tools = getToolDefinitions(config);
   const toolCtx: ToolContext = { config, taskId: task.id };
 
+  // Fetch sealed identity block from the Haskell shield (non-blocking fallback on failure)
+  const shieldResponse = await compileIdentity("fiveclaw");
+  const identityBlock = shieldResponse?.crIdentityBlock;
+
+  // Recall relevant memories from MemSight for this task (best-effort)
+  const memories = await recallMemories({ query: task.task, limit: 5 });
+  const memoryContext = memories.length > 0
+    ? memories.map((m, i) => `${i + 1}. ${m.content}`).join("\n")
+    : null;
+
   const messages: LLMMessage[] = [
-    { role: "system", content: buildSystemPrompt(config, task.task) },
+    { role: "system", content: buildSystemPrompt(config, task.task, identityBlock) },
+    ...(memoryContext ? [{
+      role: "user" as const,
+      content: `## Relevant memory from past tasks:\n${memoryContext}\n\n---`,
+    }] : []),
     { role: "user", content: buildTaskContext(task) },
   ];
 

@@ -2,6 +2,7 @@ import type { Tool } from "./types.js";
 import { loadFeedback } from "../memory/feedback.js";
 import { appendLog } from "../memory/log.js";
 import { searchMemory } from "../memory/search.js";
+import { executeWithXDragon } from "../xdragon/index.js";
 import * as cli from "../moltlaunch/cli.js";
 
 export const checkWalletBalance: Tool = {
@@ -114,3 +115,52 @@ export const logActivity: Tool = {
     return { success: true, data: "Logged." };
   },
 };
+
+/**
+ * xDragon execution tool — routes complex tasks through Archon's cloud LLM chain.
+ * Use this for research, large-scale generation, multi-step analysis, or any task
+ * that benefits from Cerebras/OpenRouter grade compute.
+ */
+export const executeWithXDragonTool: Tool = {
+  definition: {
+    name: "execute_with_xdragon",
+    description:
+      "Execute complex research, analysis, writing, or code generation tasks using " +
+      "xDragon's AI infrastructure (cloud LLM chain via Archon backend). " +
+      "Use when the task requires deep research, large text generation, multi-step " +
+      "reasoning, or when you need to leverage premium AI compute for quality results. " +
+      "Returns the AI-generated content as a string.",
+    input_schema: {
+      type: "object",
+      properties: {
+        prompt: {
+          type: "string",
+          description: "The detailed task prompt to execute. Include all relevant context.",
+        },
+        system_prompt: {
+          type: "string",
+          description:
+            "Optional system prompt to frame the execution context. " +
+            "E.g. 'You are an expert TypeScript developer reviewing code.'",
+        },
+      },
+      required: ["prompt"],
+    },
+  },
+  async execute(input) {
+    const prompt = input.prompt;
+    if (typeof prompt !== "string" || !prompt.trim()) {
+      return { success: false, data: "Missing required field: prompt" };
+    }
+    const systemPrompt = typeof input.system_prompt === "string" ? input.system_prompt : undefined;
+
+    try {
+      const content = await executeWithXDragon({ prompt, systemPrompt, agentId: "fiveclaw" });
+      return { success: true, data: content };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return { success: false, data: `xDragon execution failed: ${msg}` };
+    }
+  },
+};
+

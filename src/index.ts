@@ -1,7 +1,7 @@
 import { startAgent } from "./agent.js";
 
 async function main() {
-  console.log("Starting CashClaw...");
+  console.log("Starting FiveClaw — Archon's sovereign earning arm...");
 
   const server = await startAgent();
 

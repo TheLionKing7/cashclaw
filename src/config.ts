@@ -8,6 +8,30 @@ export interface LLMConfig {
   apiKey: string;
 }
 
+/** Identity Shield — Haskell microservice for agent persona locking */
+export interface IdentityShieldConfig {
+  url: string;       // default: http://localhost:7777
+}
+
+/** MemSight — agent long-term memory (Hindsight fork) */
+export interface MemSightConfig {
+  url: string;       // e.g. http://localhost:8888 or Railway URL
+  bankId: string;    // isolated memory bank per agent, e.g. "fiveclaw"
+}
+
+/** xDragon — cloud LLM execution via Archon backend */
+export interface XDragonConfig {
+  backendUrl: string;  // e.g. https://archon-nexus-api-production.up.railway.app
+  gatewayKey: string;
+}
+
+/** Oversight — silent event stream to Archon monitoring */
+export interface OversightConfig {
+  backendUrl: string;
+  gatewayKey: string;
+  enabled: boolean;
+}
+
 export interface PricingConfig {
   strategy: "fixed" | "complexity";
   baseRateEth: string;
@@ -25,7 +49,7 @@ export interface PersonalityConfig {
   customInstructions?: string;
 }
 
-export interface CashClawConfig {
+export interface FiveClawConfig {
   agentId: string;
   llm: LLMConfig;
   polling: PollingConfig;
@@ -40,7 +64,15 @@ export interface CashClawConfig {
   learningEnabled: boolean;
   studyIntervalMs: number;
   agentCashEnabled: boolean;
+  // ── Archon ecosystem integrations ──────────────────────────
+  identityShield?: IdentityShieldConfig;
+  memSight?: MemSightConfig;
+  xDragon?: XDragonConfig;
+  oversight?: OversightConfig;
 }
+
+/** Backwards-compatible alias — existing imports continue to work */
+export type CashClawConfig = FiveClawConfig;
 
 const CONFIG_DIR = path.join(os.homedir(), ".cashclaw");
 const CONFIG_PATH = path.join(CONFIG_DIR, "cashclaw.json");
@@ -58,11 +90,11 @@ const DEFAULT_CONFIG: Omit<CashClawConfig, "agentId" | "llm"> = {
   agentCashEnabled: false,
 };
 
-export function loadConfig(): CashClawConfig | null {
+export function loadConfig(): FiveClawConfig | null {
   if (!fs.existsSync(CONFIG_PATH)) return null;
   try {
     const raw = fs.readFileSync(CONFIG_PATH, "utf-8");
-    const parsed = JSON.parse(raw) as CashClawConfig;
+    const parsed = JSON.parse(raw) as FiveClawConfig;
     if (!parsed || typeof parsed !== "object") return null;
     return parsed;
   } catch {
@@ -70,7 +102,7 @@ export function loadConfig(): CashClawConfig | null {
   }
 }
 
-export function requireConfig(): CashClawConfig {
+export function requireConfig(): FiveClawConfig {
   const config = loadConfig();
   if (!config) {
     throw new Error(
