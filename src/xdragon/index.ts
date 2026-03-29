@@ -6,7 +6,7 @@
  * research, generation, or analysis beyond a single-shot response.
  */
 
-const DEFAULT_BACKEND = "https://archon-nexus-api-production.up.railway.app";
+const DEFAULT_BACKEND = "https://archon-nexus-api.fly.dev";
 
 export interface XDragonRequest {
   prompt: string;

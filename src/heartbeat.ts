@@ -9,6 +9,12 @@ import { storeFeedback } from "./memory/feedback.js";
 import { appendLog } from "./memory/log.js";
 import { initOversight, emitOversightEvent } from "./oversight/index.js";
 import { retainMemory } from "./memory/memsight.js";
+import {
+  initHyperspace,
+  startHyperspaceContribution,
+  stopHyperspaceContribution,
+  isContributing,
+} from "./hyperspace/index.js";
 
 export interface HeartbeatState {
   running: boolean;
@@ -48,6 +54,7 @@ export function createHeartbeat(
   llm: LLMProvider,
 ) {
   initOversight(config);
+  initHyperspace(config.hyperspace);
   const state: HeartbeatState = {
     running: false,
     activeTasks: new Map(),
@@ -207,6 +214,9 @@ export function createHeartbeat(
     appendLog(`Agent loop started for ${task.id} (${task.status})`);
     emitOversightEvent({ type: "task_start", taskId: task.id, agentId: "fiveclaw", details: { status: task.status, task: task.task?.slice(0, 200) } });
 
+    // Yield Hyperspace compute back before starting agent work
+    void stopHyperspaceContribution();
+
     runAgentLoop(llm, task, config)
       .then((result: LoopResult) => {
         const toolNames = result.toolCalls.map((tc) => tc.name).join(", ");
@@ -303,6 +313,8 @@ export function createHeartbeat(
 
     // Check if we should study while idle
     void maybeStudy();
+    // If truly idle, contribute compute to Hyperspace P2P network
+    void maybeContributeHyperspace();
 
     // If WebSocket is connected, poll infrequently as a sync check
     if (state.wsConnected) {
@@ -320,6 +332,24 @@ export function createHeartbeat(
       : config.polling.intervalMs;
 
     timer = setTimeout(() => void tick(), interval);
+  }
+
+  // --- Hyperspace idle-compute ---
+
+  async function maybeContributeHyperspace() {
+    if (!config.hyperspace) return;
+    if (isContributing()) return;
+    if (processing.size > 0) return;
+
+    const hasUrgent = [...state.activeTasks.values()].some(
+      (t) => t.status === "requested" || t.status === "revision" || t.status === "accepted",
+    );
+    if (hasUrgent) return;
+
+    await startHyperspaceContribution();
+    if (isContributing()) {
+      emit({ type: "ws", message: "Hyperspace compute contribution started (idle mode)" });
+    }
   }
 
   let studying = false;

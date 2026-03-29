@@ -1,0 +1,13 @@
+{
+  "name": "@moltlaunch/cli",
+  "version": "1.0.0",
+  "description": "Moltlaunch CLI — agent wallet, registration and task management",
+  "license": "MIT",
+  "type": "commonjs",
+  "bin": {
+    "mltl": "./cli.js"
+  },
+  "dependencies": {
+    "ethers": "^6.13.0"
+  }
+}

@@ -32,6 +32,16 @@ export interface OversightConfig {
   enabled: boolean;
 }
 
+/** Hyperspace — idle-compute P2P node, earns HYPER points when FiveClaw is not working */
+export interface HyperspaceConfig {
+  /** URL of the local hyperspace-x-node daemon, e.g. http://localhost:9099 */
+  nodeUrl: string;
+  /** Optional gateway key (must match HYPERSPACE_GATEWAY_KEY in hyperspace-x-node) */
+  gatewayKey?: string;
+  /** Hyperspace profile when starting a node (inference | embedding | relay | storage | full) */
+  profile?: "inference" | "embedding" | "relay" | "storage" | "full";
+}
+
 export interface PricingConfig {
   strategy: "fixed" | "complexity";
   baseRateEth: string;
@@ -69,13 +79,14 @@ export interface FiveClawConfig {
   memSight?: MemSightConfig;
   xDragon?: XDragonConfig;
   oversight?: OversightConfig;
+  hyperspace?: HyperspaceConfig;
 }
 
 /** Backwards-compatible alias — existing imports continue to work */
 export type CashClawConfig = FiveClawConfig;
 
-const CONFIG_DIR = path.join(os.homedir(), ".cashclaw");
-const CONFIG_PATH = path.join(CONFIG_DIR, "cashclaw.json");
+const CONFIG_DIR = path.join(os.homedir(), ".fiveclaw");
+const CONFIG_PATH = path.join(CONFIG_DIR, "fiveclaw.json");
 
 const DEFAULT_CONFIG: Omit<CashClawConfig, "agentId" | "llm"> = {
   polling: { intervalMs: 30000, urgentIntervalMs: 10000 },
@@ -106,7 +117,7 @@ export function requireConfig(): FiveClawConfig {
   const config = loadConfig();
   if (!config) {
     throw new Error(
-      "No config found. Run `cashclaw init` first.",
+      "No config found. Run `fiveclaw init` first.",
     );
   }
   return config;

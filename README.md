@@ -331,6 +331,111 @@ The agent loop, self-learning, memory search, dashboard, chat, AgentCash, and al
 - AgentCash integration (paid API access)
 - Config system (hot-reload, setup wizard)
 
+## Archon Nexus Integration
+
+FiveClaw is a first-class citizen of the **Archon Nexus** sovereign AI operating system. When running alongside Archon, FiveClaw becomes the platform's autonomous revenue engine — managed, monitored, and orchestrated by Archon and his Alpha S7 foot soldiers.
+
+### How It Works
+
+Archon registers FiveClaw as an **MCP HTTP provider** in `backend/services/mcp.js`. This exposes FiveClaw's full capabilities (quoting, working, studying) as MCP tools that every Alpha S7 agent can invoke.
+
+```
+Archon Backend
+    │
+    ▼
+MCP Manager (mcp.js)
+    │── STDIO providers (local tools)
+    │── ByteRover MCP
+    └── FiveClaw HTTP Provider  ← http://localhost:3777
+            │
+            ▼
+        FiveClaw Agent Loop
+            │── Moltlaunch marketplace
+            │── AgentCash paid APIs
+            └── BM25 knowledge base
+```
+
+### Configuration
+
+**In your Archon `.env`:**
+```env
+FIVECLAW_URL=http://localhost:3777
+```
+
+That's it. When Archon detects `FIVECLAW_URL`, it registers FiveClaw as an MCP HTTP provider and all tools become available to the council.
+
+### Agent Delegation
+
+Archon and the Alpha S7 council delegate revenue-generating tasks to FiveClaw based on their respective domains:
+
+| Agent | Delegation Pattern |
+|-------|-------------------|
+| **AYO** (DevOps) | Code review tasks, TypeScript/React jobs, security audits |
+| **ARIA** (Creative) | Writing tasks, content generation, copy jobs |
+| **MEI** (Business) | Market research bounties, data analysis tasks |
+| **ARCHON** (Strategist) | High-value bounties that align with platform strategy |
+
+AYO can also manage FiveClaw's lifecycle directly through Daemon shell commands:
+
+```bash
+# AYO via Daemon
+cashclaw                     # Start the agent
+pkill -f cashclaw            # Stop the agent
+cat ~/.cashclaw/knowledge.json   # Inspect knowledge base
+```
+
+### Using xDragon as FiveClaw's LLM Backend
+
+Point FiveClaw at [xDragon](https://github.com/your-org/xdragon) for fully local, zero-cost inference:
+
+In **FiveClaw Settings > LLM**:
+- Provider: `OpenAI Compatible`
+- Base URL: `http://localhost:11434/v1` (xDragon / Ollama endpoint)
+- Model: `qwen2.5:7b` (recommended for task work)
+- API Key: `ollama` (any non-empty string)
+
+This routes all FiveClaw task execution through xDragon, keeping the entire work loop on local compute.
+
+### Knowledge Base → Sovereign Vault Pipeline
+
+FiveClaw's knowledge entries are valuable intelligence. Archon can ingest them into the **Sovereign Vault** (Supabase nuggets table) for council-wide consumption:
+
+```
+FiveClaw knowledge.json
+    │── BM25-indexed insights from study sessions
+    │── Client feedback patterns
+    └── Specialty best practices
+            │
+            ▼ (MEI or AYO ingestion workflow)
+    Archon Sovereign Vault (nuggets)
+            │
+            ▼
+    Alpha S7 council recall context
+```
+
+MEI (Business Intelligence) and AYO (DevOps) periodically pull FiveClaw's top knowledge entries and store them as nuggets, making them available to the entire council's recall context.
+
+### Memsight Memory for FiveClaw Sessions
+
+Each FiveClaw task session can be retained in Memsight for long-term pattern learning:
+
+```
+FiveClaw completes task → rating + outcome stored
+    → Archon Mission logs task as experience fact
+    → Memsight retains: task type, outcome, earned ETH, client feedback
+    → MEI recalls: "what types of tasks earn best ratings?"
+```
+
+### Monitoring from Palace
+
+When FiveClaw is running, the Archon **Palace UI** displays:
+- FiveClaw online/offline status (via MCP health check)
+- Active task count and average rating
+- ETH balance and last payout
+- Recent study session topics
+
+---
+
 ## Development
 
 ```bash

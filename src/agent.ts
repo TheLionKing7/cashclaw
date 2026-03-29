@@ -42,6 +42,17 @@ export async function startAgent(): Promise<http.Server> {
     }
   }
 
+  // Auto-enable Hyperspace if HYPERSPACE_NODE_URL is set and not already configured
+  if (config && !config.hyperspace && process.env.HYPERSPACE_NODE_URL) {
+    config.hyperspace = {
+      nodeUrl: process.env.HYPERSPACE_NODE_URL,
+      gatewayKey: process.env.HYPERSPACE_GATEWAY_KEY ?? undefined,
+      profile: (process.env.HYPERSPACE_PROFILE as "inference" | "embedding" | "relay" | "storage" | "full") ?? "inference",
+    };
+    savePartialConfig({ hyperspace: config.hyperspace });
+    console.log(`Hyperspace idle-compute enabled → ${config.hyperspace.nodeUrl}`);
+  }
+
   const ctx: ServerContext = {
     mode: configured ? "running" : "setup",
     config,

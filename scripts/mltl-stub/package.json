@@ -1,0 +1,12 @@
+{
+  "name": "moltlaunch-cli-stub",
+  "version": "1.0.0",
+  "description": "Local stub for the Moltlaunch mltl CLI (wallet + marketplace commands)",
+  "type": "module",
+  "bin": {
+    "mltl": "./mltl.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

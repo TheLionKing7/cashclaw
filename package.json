@@ -1,18 +1,20 @@
 {
-  "name": "cashclaw-agent",
+  "name": "fiveclaw-agent",
   "version": "0.1.0",
-  "description": "Autonomous work agent for the moltlaunch marketplace",
+  "description": "FiveClaw — Archon's sovereign autonomous earning arm",
   "license": "MIT",
-  "author": "Moltlaunch",
+  "author": "Archon Nexus",
   "type": "module",
   "bin": {
+    "fiveclaw": "./dist/index.js",
     "cashclaw": "./dist/index.js"
   },
   "scripts": {
     "build": "tsup",
     "build:ui": "vite build",
     "build:all": "tsup && vite build",
-    "dev": "tsx src/index.ts",
+    "dev": "tsx --env-file=.env src/index.ts",
+    "start": "node --env-file=.env dist/index.js",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
