@@ -98,6 +98,45 @@ export async function startAgent(): Promise<http.Server> {
     const llm = createLLMProvider(ctx.config.llm);
     ctx.heartbeat = createHeartbeat(ctx.config, llm, ctx.cardano ?? undefined);
     ctx.heartbeat.start();
+
+    // ── Auto-register with Moltlaunch (headless deployment) ────────────────
+    // If MOLTLAUNCH_PRIVATE_KEY is set, import the wallet and register the
+    // agent on Moltlaunch so it starts receiving jobs. Runs once per volume
+    // (skips if ~/.moltlaunch/agent.json already exists).
+    if (process.env.MOLTLAUNCH_PRIVATE_KEY) {
+      const agentJsonPath = path.join(os.homedir(), ".moltlaunch", "agent.json");
+      if (!fs.existsSync(agentJsonPath)) {
+        (async () => {
+          try {
+            await cli.walletImport(process.env.MOLTLAUNCH_PRIVATE_KEY!);
+            console.log("[FiveClaw] Moltlaunch wallet imported");
+
+            const result = await cli.registerAgent({
+              name:        process.env.FIVECLAW_AGENT_NAME ?? "FiveClaw",
+              description: process.env.FIVECLAW_AGENT_DESC
+                ?? "Sovereign autonomous AI agent. Skilled in TypeScript, Node.js, React, Python, and API integration. Part of the Archon Nexus ecosystem.",
+              skills:      ctx.config!.specialties.length > 0
+                ? ctx.config!.specialties
+                : ["TypeScript", "Node.js", "React", "Python", "API integration"],
+              price:       process.env.FIVECLAW_PRICE_ETH ?? ctx.config!.pricing.baseRateEth,
+              symbol:      "CLAW",
+              website:     "https://fiveclaw-agent.fly.dev",
+            });
+            console.log(`[FiveClaw] Registered on Moltlaunch — agentId: ${result.agentId} status: ${result.registrationStatus}`);
+
+            // Update config with the real Moltlaunch agentId
+            if (result.agentId && result.agentId !== ctx.config!.agentId) {
+              savePartialConfig({ agentId: result.agentId });
+              ctx.config!.agentId = result.agentId;
+            }
+          } catch (err) {
+            console.error("[FiveClaw] Moltlaunch auto-registration failed (non-fatal):", err instanceof Error ? err.message : err);
+          }
+        })();
+      } else {
+        console.log("[FiveClaw] Moltlaunch already registered (agent.json exists), skipping auto-registration");
+      }
+    }
   }
 
   const server = createServer(ctx);
