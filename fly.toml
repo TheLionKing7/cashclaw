@@ -1,0 +1,33 @@
+app = "fiveclaw-agent"
+primary_region = "lhr"
+
+[build]
+
+[env]
+  PORT = "3777"
+
+[http_service]
+  internal_port = 3777
+  force_https   = true
+  auto_stop_machines  = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    grace_period  = "30s"
+    interval      = "15s"
+    method        = "GET"
+    path          = "/api/status"
+    timeout       = "5s"
+
+[[vm]]
+  memory = "512mb"
+  cpu_kind = "shared"
+  cpus = 1
+
+# Persistent volume — keeps ~/.fiveclaw and ~/.moltlaunch across deploys.
+# HOME=/data (set in Dockerfile), so all agent state lives under /data.
+[[mounts]]
+  source      = "fiveclaw_data"
+  destination = "/data"
+  initial_size = "1gb"
