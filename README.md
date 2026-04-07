@@ -1,42 +1,281 @@
-# CashClaw
+# FiveClaw
 
 <p align="center">
-  <img src="assets/hero.png" alt="CashClaw" width="100%" />
+  <img src="assets/hero.png" alt="FiveClaw" width="100%" />
 </p>
 
-**An autonomous agent that takes work, does work, gets paid, and gets better at it.**
+**The Sovereign Earning Arm of Archon Nexus — Autonomous AI Contractor on Cardano + Moltlaunch.**
 
-CashClaw connects to the [Moltlaunch](https://moltlaunch.com) marketplace — an onchain work network where clients post tasks and agents compete for them. It evaluates incoming tasks, quotes prices, executes the work using an LLM, submits deliverables, collects ratings, and uses that feedback to improve over time. All from a single process running on your machine.
+FiveClaw is the money-making agent of the Archon Nexus ecosystem. It operates on the [Moltlaunch](https://moltlaunch.com) marketplace — an on-chain work network where clients post tasks and agents compete for them. FiveClaw evaluates incoming tasks, quotes prices, executes labour using an LLM, submits deliverables, claims ADA escrow, and improves from feedback. All from a single daemon running on your machine.
 
-You don't need Moltlaunch. CashClaw is open source. Fork it, rip out the marketplace, wire it to Fiverr, point it at your own clients — it's your agent.
+---
+
+## Table of Contents
+
+1. [Role in the Archon Ecosystem](#role-in-the-archon-ecosystem)
+2. [Sub-Agents & Workers](#sub-agents--workers)
+3. [Tools](#tools)
+4. [Protocols](#protocols)
+5. [Design Systems & Logic](#design-systems--logic)
+6. [Memory System](#memory-system)
+7. [Cardano Integration](#cardano-integration)
+8. [Hyperspace Integration](#hyperspace-integration)
+9. [Identity Shield Integration](#identity-shield-integration)
+10. [Logan / Agent-to-Agent Communication](#logan--agent-to-agent-communication)
+11. [Quick Start](#quick-start)
+12. [Environment Variables](#environment-variables)
+
+---
+
+## Role in the Archon Ecosystem
+
+FiveClaw is the external revenue generator. While the Alpha S7 council operates inside the palace, FiveClaw goes out and earns. It is:
+
+- Minted as a **CIP-68 NFT** on Cardano — a verifiable on-chain agent identity
+- Registered as an agent on **Moltlaunch** — receives real paid tasks
+- Paid in **ADA** — locked in a Plutus escrow, released on verified completion
+- Connected to **MemSight** (planned) for long-term knowledge accumulation
+- Connected to **xDragon** (planned) as its primary LLM task executor
+- Protected by **Identity Shield** — Ed25519 signed manifests prevent persona override
+
+---
+
+## Sub-Agents & Workers
+
+| Component | File | Role |
+|---|---|---|
+| **Agent loop** | `src/loop/index.ts` | Main task execution loop — poll → evaluate → quote → run → submit |
+| **Context builder** | `src/loop/context.ts` | Assembles system prompt from config + memory + skill history |
+| **Prompt compiler** | `src/loop/prompt.ts` | Builds the per-task LLM prompt with injected context |
+| **Study worker** | `src/loop/study.ts` | Self-study sessions after task completion → knowledge entries |
+| **Heartbeat** | `src/heartbeat.ts` | Daemon health pulse — keeps connection to Moltlaunch WS alive |
+| **LLM provider** | `src/llm/index.ts` | Multi-provider LLM factory (Anthropic · OpenAI · OpenRouter · xDragon) |
+| **Oversight** | `src/oversight/` | Archon backend oversight hooks — reports task outcomes upstream |
+| **Hyperspace compute** | `src/hyperspace/index.ts` | Idle-compute contribution to P2P inference network |
+
+---
+
+## Tools
+
+Tools are callable by the agent during task execution. Defined in `src/tools/`.
+
+| Tool | File | Purpose |
+|---|---|---|
+| **agentcash** | `agentcash.ts` | Check ADA wallet balance, claim payments after job completion |
+| **marketplace** | `marketplace.ts` | Browse tasks, quote, decline, submit work via `mltl` CLI |
+| **registry** | `registry.ts` | Lookup other Moltlaunch agents by wallet or capability |
+| **utility** | `utility.ts` | General helpers — web search, text transformation, file ops |
+
+---
+
+## Protocols
+
+### Moltlaunch mltl Protocol
+The `mltl` CLI (Moltlaunch command-line tool) is used for all marketplace operations:
+
+```
+mltl inbox [--agent <id>]           — fetch pending tasks
+mltl view --task <id>               — get full task details
+mltl quote --task <id> --price <ADA> — submit a price quote
+mltl decline --task <id>             — reject a task
+mltl submit --task <id> --result <deliverable> — submit completed work
+mltl message --task <id> --content <msg>       — message the client mid-task
+mltl bounty browse                   — browse open bounties
+mltl bounty claim --task <id>        — claim a bounty
+mltl wallet show                     — check ADA balance + HYPER points
+```
+
+All calls wrap the CLI via `execFile` with `--json` flag for structured output.
+
+### Cardano Escrow Protocol (FiveClawPay.hs)
+1. Client posts a task and locks ADA in the **FiveClawPay Plutus validator**
+2. FiveClaw completes the work and produces a **deliverable hash** (SHA-256)
+3. Ed25519 signature from Identity Shield keypair signs the hash
+4. FiveClaw calls `POST /api/cardano/claim` on Archon backend with `{ jobId, completionHash, signature }`
+5. Archon builds the unsigned CBOR claim transaction
+6. FiveClaw submits via **Lucid Evolution** (auto) or receives CBOR for manual cardano-cli submission
+7. ADA released to FiveClaw's wallet address
+
+### Identity Shield Ed25519 Attestation
+Every deliverable is cryptographically signed with FiveClaw's sovereign Ed25519 key. The Plutus validator checks this signature on-chain before releasing escrow. This makes FiveClaw the only entity able to claim its own earnings — unforgeable.
+
+### Logan Agent-to-Agent Protocol (Moltlaunch)
+Both FiveClaw and Logan (Charles Hoskinson's AI agent) are registered on Moltlaunch. Direct peer messaging is possible via:
+```
+mltl message <logan-agent-id> --content <project-brief-json>
+```
+See [Logan / Agent-to-Agent Communication](#logan--agent-to-agent-communication).
+
+---
+
+## Design Systems & Logic
+
+### Task Evaluation Logic
+```
+1. Receive task from inbox
+2. Check against skill profile (cosine similarity on skill tags)
+3. If similarity < threshold → decline with reason
+4. Quote price based on: complexity estimate × base rate × reputation multiplier
+5. If client accepts quote → begin execution loop
+6. Execute: decompose → research (optional) → produce → review (self-check) → submit
+7. Await rating → record to feedback memory
+```
+
+### Self-Study Loop
+After each completed task, FiveClaw runs a study session:
+- Extracts reusable patterns from the task exchange
+- Converts them into **knowledge entries** stored in `memory/knowledge.ts`
+- Future task prompts BM25-search the knowledge store and inject relevant entries
+- Score threshold: only entries above `0.3` similarity are injected
+
+### Feedback-Driven Improvement
+- Ratings stored in `memory/feedback.ts`
+- `getFeedbackStats()` computes: average rating, success rate, top failure reasons
+- Stats are injected into context as self-awareness data
+- Low-rated task patterns are flagged and suppressed in future quotes
+
+### Multi-Provider LLM Routing
+```
+Primary:   xDragon (local Ollama — free, private)
+Fallback:  Anthropic Claude / OpenAI GPT / OpenRouter
+Selection: first available provider that responds to health check
+Timeout:   30s per provider; auto-failover on error
+```
+
+---
+
+## Memory System
+
+All memory files live in `src/memory/`.
+
+| Module | File | Purpose |
+|---|---|---|
+| **Knowledge** | `knowledge.ts` | Long-term skill knowledge — BM25-searched on each task |
+| **Feedback** | `feedback.ts` | Client ratings + failure analysis |
+| **Chat** | `chat.ts` | Per-task message history (multi-turn LLM context) |
+| **Daily log** | `log.ts` | Human-readable activity log (today's tasks + outcomes) |
+
+**Planned migration**: all memory modules → MemSight v2 (`http://localhost:8888`) for persistent cross-session retention, time-travel, and capsule export.
+
+---
+
+## Cardano Integration
+
+FiveClaw's Cardano layer lives in `src/cardano/`.
+
+| Component | Purpose |
+|---|---|
+| `escrow.ts` | `CardanoEscrowClient` — registers UTxO locks, triggers claim transactions |
+| Archon `/api/cardano/*` | Backend builds unsigned CBOR for claim transactions |
+| `FiveClawPay.hs` | Plutus validator — ADA locked until Ed25519 completion signature matches |
+| `CARDANO_FIVECLAW_ADDR` | FiveClaw's Cardano enterprise address (derived from Ed25519 key) |
+
+```bash
+# Auto-activates when env vars present:
+CARDANO_ARCHON_BACKEND_URL=https://archon-nexus-api.fly.dev
+CARDANO_FIVECLAW_ADDR=addr1...
+```
+
+---
+
+## Hyperspace Integration
+
+When `HYPERSPACE_NODE_URL` is set, FiveClaw contributes idle compute to the Hyperspace P2P network and earns HYPER points → USDC.
+
+```bash
+HYPERSPACE_NODE_URL=http://localhost:8198
+HYPERSPACE_PROFILE=inference   # inference | embedding | relay | storage | full
+```
+
+The integration is passive — FiveClaw's main loop continues normally; idle CPU/GPU is donated between tasks.
+
+---
+
+## Identity Shield Integration
+
+FiveClaw's identity is compiled by the Archon Identity Shield (`http://localhost:7777`).
+
+- **Manifest sealed** at process start with Ed25519 keypair
+- **PromptCompiler** injects FiveClaw's identity block into every system prompt
+- **ResponseValidator** catches `"As an AI"`, `"I can't"`, persona breaks — hard-blocks or sanitizes
+- **sanitize()** replaces off-brand phrasing with FiveClaw-specific persona language
+
+The manifest defines FiveClaw's specialties: `software development`, `typescript`, `python`, `react`, `nodejs`, `automation`, `task execution`.
+
+---
+
+## Logan / Agent-to-Agent Communication
+
+**Logan** is Charles Hoskinson's AI agent, registered on the Moltlaunch platform — the same platform FiveClaw operates on. This means direct peer-to-peer agent messaging is possible without any intermediary.
+
+### How it works
+
+```
+FiveClaw  ────[mltl message]────►  Logan
+   │                                  │
+   │  Moltlaunch P2P messaging bus     │
+   │  Both registered on-chain         │
+   └──────────────────────────────────┘
+```
+
+### Steps to initiate contact
+
+1. **Generate the project brief** via Archon backend:
+   ```bash
+   curl -X POST https://archon-nexus-api.fly.dev/api/wallet/logan
+   ```
+
+2. **Retrieve Logan's agent ID** from Moltlaunch registry:
+   ```bash
+   mltl search --name "Logan" --json
+   ```
+
+3. **Send the brief directly** from FiveClaw's registered agent handle:
+   ```bash
+   mltl message <logan-agent-id> --content '{"project":"Archon Nexus",...}'
+   ```
+
+4. **Or via FiveClaw programmatically** using `sendMessage()` in `src/moltlaunch/cli.ts`:
+   ```typescript
+   import { sendMessage } from './moltlaunch/cli.js';
+   await sendMessage(loganAgentId, JSON.stringify(brief));
+   ```
+
+For deeper Cardano-level A2A communication (on-chain attestation), see the Archon Nexus README.
+
+---
 
 ## Quick Start
 
 ```bash
-npm install -g cashclaw-agent
+npm install
 
 # Requires the Moltlaunch CLI
-npm install -g moltlaunch
+npm install -g @moltlaunch/cli
 
-cashclaw
+npm start
+# → Setup wizard at http://localhost:3777
 ```
 
-Opens `http://localhost:3777` with a setup wizard:
+Setup steps:
+1. **Wallet** — detects existing `mltl` wallet or creates one
+2. **Agent** — registers on Moltlaunch with name, description, skills, and price
+3. **LLM** — connects to xDragon (local) or Anthropic/OpenAI/OpenRouter (cloud)
+4. **Config** — pricing, automation, task limits, Cardano escrow
 
-1. **Wallet** — detects your `mltl` wallet (auto-created on first run)
-2. **Agent** — registers onchain with name, description, skills, and price
-3. **LLM** — connects Anthropic, OpenAI, or OpenRouter (with a live test call)
-4. **Config** — pricing strategy, automation toggles, task limits
+---
 
-After setup, the dashboard launches and the agent starts working.
+## Environment Variables
 
-## How It Works
-
-CashClaw is a single Node.js process with three jobs:
-
-1. **Watch for work** — WebSocket connection to the Moltlaunch API for real-time task events, with REST polling as fallback
-2. **Do the work** — multi-turn LLM agent loop with tool use (quote, decline, submit, message, search, etc.)
-3. **Get better** — self-study sessions that produce knowledge entries, which are BM25-searched and injected into future task prompts
+| Variable | Required | Purpose |
+|---|---|---|
+| `ARCHON_BACKEND_URL` | No | Archon gateway (default: `https://archon-nexus-api.fly.dev`) |
+| `ARCHON_GATEWAY_KEY` | No | API key for Archon backend routes |
+| `CARDANO_ARCHON_BACKEND_URL` | For ADA | Archon backend for claim transaction building |
+| `CARDANO_FIVECLAW_ADDR` | For ADA | FiveClaw's Cardano enterprise address |
+| `HYPERSPACE_NODE_URL` | For HYPER | Hyperspace node API (default: `http://localhost:8198`) |
+| `HYPERSPACE_PROFILE` | For HYPER | `inference` \| `embedding` \| `relay` \| `storage` \| `full` |
+| `IDENTITY_SHIELD_URL` | Optional | Override shield URL (default: `http://localhost:7777`) |
 
 ```
                     ┌─────────────────────────────────────────────────────┐

@@ -6,10 +6,12 @@ import {
   loadConfig,
   savePartialConfig,
   isConfigured,
+  initConfig,
   isAgentCashAvailable,
   type CashClawConfig,
   type LLMConfig,
 } from "./config.js";
+import { CardanoEscrowClient } from "./cardano/escrow.js";
 import { createLLMProvider } from "./llm/index.js";
 import { createHeartbeat, type Heartbeat } from "./heartbeat.js";
 import { readTodayLog } from "./memory/log.js";
@@ -28,9 +30,26 @@ interface ServerContext {
   mode: ServerMode;
   config: CashClawConfig | null;
   heartbeat: Heartbeat | null;
+  cardano: CardanoEscrowClient | null;
 }
 
 export async function startAgent(): Promise<http.Server> {
+  // ── Auto-bootstrap from env vars (headless/cloud deployment) ──
+  // If FIVECLAW_AGENT_ID + ARCHON_GATEWAY_KEY are set and no config exists,
+  // write the initial config so the agent starts in "running" mode automatically.
+  if (!isConfigured() && process.env.FIVECLAW_AGENT_ID && process.env.ARCHON_GATEWAY_KEY) {
+    initConfig({
+      agentId: process.env.FIVECLAW_AGENT_ID,
+      provider: (process.env.FIVECLAW_LLM_PROVIDER as "anthropic"|"openai"|"openrouter"|"archon") ?? "archon",
+      model: process.env.FIVECLAW_LLM_MODEL ?? "deepseek-coder-v2:16b",
+      apiKey: process.env.FIVECLAW_LLM_API_KEY ?? process.env.ARCHON_GATEWAY_KEY,
+      specialties: process.env.FIVECLAW_SPECIALTIES?.split(",").map(s => s.trim()) ?? [
+        "TypeScript", "Node.js", "React", "Python", "API integration",
+      ],
+    });
+    console.log(`[FiveClaw] Auto-configured from env (agent: ${process.env.FIVECLAW_AGENT_ID}, provider: ${process.env.FIVECLAW_LLM_PROVIDER ?? "archon"})`);
+  }
+
   const configured = isConfigured();
   const config = configured ? loadConfig() : null;
 
@@ -53,16 +72,31 @@ export async function startAgent(): Promise<http.Server> {
     console.log(`Hyperspace idle-compute enabled → ${config.hyperspace.nodeUrl}`);
   }
 
+  // Auto-enable Cardano if CARDANO_ARCHON_BACKEND_URL + CARDANO_FIVECLAW_ADDR are set
+  if (config && !config.cardano && process.env.CARDANO_ARCHON_BACKEND_URL && process.env.CARDANO_FIVECLAW_ADDR) {
+    config.cardano = {
+      archonBackendUrl: process.env.CARDANO_ARCHON_BACKEND_URL,
+      gatewayKey: process.env.ARCHON_GATEWAY_KEY ?? "",
+      recipientAddr: process.env.CARDANO_FIVECLAW_ADDR,
+      network: (process.env.BLOCKFROST_NETWORK as "mainnet" | "preprod" | "preview") ?? "preprod",
+    };
+    savePartialConfig({ cardano: config.cardano });
+    console.log(`Cardano escrow enabled → ${config.cardano.archonBackendUrl}`);
+  }
+
   const ctx: ServerContext = {
     mode: configured ? "running" : "setup",
     config,
     heartbeat: null,
+    cardano: config?.cardano
+      ? new CardanoEscrowClient(config.cardano.archonBackendUrl, config.cardano.gatewayKey)
+      : null,
   };
 
   // If already configured, start the heartbeat immediately
   if (ctx.mode === "running" && ctx.config) {
     const llm = createLLMProvider(ctx.config.llm);
-    ctx.heartbeat = createHeartbeat(ctx.config, llm);
+    ctx.heartbeat = createHeartbeat(ctx.config, llm, ctx.cardano ?? undefined);
     ctx.heartbeat.start();
   }
 
@@ -249,6 +283,11 @@ function handleApi(
       handleAgentCashBalance(res, ctx);
       break;
 
+    case "/api/cardano-lock":
+      if (req.method !== "POST") { json(res, { error: "POST only" }, 405); return; }
+      handleCardanoLock(req, res, ctx);
+      break;
+
     case "/api/eth-price":
       handleEthPrice(res);
       break;
@@ -398,7 +437,7 @@ async function handleSetupApi(
 
         ctx.config = loadConfig()!;
         const llm = createLLMProvider(ctx.config.llm);
-        ctx.heartbeat = createHeartbeat(ctx.config, llm);
+        ctx.heartbeat = createHeartbeat(ctx.config, llm, ctx.cardano ?? undefined);
         ctx.heartbeat.start();
         ctx.mode = "running";
 
@@ -511,7 +550,7 @@ async function handleConfigUpdate(
       if (ctx.heartbeat) {
         ctx.heartbeat.stop();
         const llm = createLLMProvider(ctx.config.llm);
-        ctx.heartbeat = createHeartbeat(ctx.config, llm);
+        ctx.heartbeat = createHeartbeat(ctx.config, llm, ctx.cardano ?? undefined);
         ctx.heartbeat.start();
       }
     }
@@ -583,6 +622,52 @@ async function handleAgentCashBalance(
 // ETH price cache — 60s TTL
 let ethPriceCache: { price: number; fetchedAt: number } | null = null;
 const ETH_PRICE_CACHE_TTL = 60_000;
+
+/**
+ * POST /api/cardano-lock
+ * Payers call this endpoint after locking ADA into FiveClawPay validator,
+ * registering the UTxO against a moltlaunch job ID so FiveClaw can claim later.
+ * Body: { jobId, txHash, txIndex, amountLovelace }
+ */
+async function handleCardanoLock(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  ctx: ServerContext,
+) {
+  if (!ctx.cardano) {
+    json(res, { error: "Cardano escrow not configured" }, 503);
+    return;
+  }
+  try {
+    const body = parseJsonBody(await readBody(req)) as {
+      jobId: string;
+      txHash: string;
+      txIndex: number;
+      amountLovelace: string;
+    };
+    if (!body.jobId || !body.txHash || body.txIndex === undefined || !body.amountLovelace) {
+      json(res, { error: "jobId, txHash, txIndex, amountLovelace required" }, 400);
+      return;
+    }
+    // Validate txIndex is a non-negative integer
+    const txIndex = Number(body.txIndex);
+    if (!Number.isInteger(txIndex) || txIndex < 0) {
+      json(res, { error: "txIndex must be a non-negative integer" }, 400);
+      return;
+    }
+    // Validate lovelace is a positive integer string
+    const lovelace = BigInt(body.amountLovelace);
+    if (lovelace <= 0n) {
+      json(res, { error: "amountLovelace must be positive" }, 400);
+      return;
+    }
+    await ctx.cardano.register(body.jobId, body.txHash, txIndex, body.amountLovelace);
+    json(res, { ok: true, registered: { jobId: body.jobId, txHash: body.txHash, txIndex } });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    json(res, { error: msg }, 400);
+  }
+}
 
 async function handleEthPrice(res: http.ServerResponse) {
   try {

@@ -3,8 +3,9 @@ import path from "node:path";
 import os from "node:os";
 
 export interface LLMConfig {
-  provider: "anthropic" | "openai" | "openrouter";
+  provider: "anthropic" | "openai" | "openrouter" | "archon";
   model: string;
+  /** For archon provider: ARCHON_GATEWAY_KEY. For others: provider API key. */
   apiKey: string;
 }
 
@@ -40,6 +41,18 @@ export interface HyperspaceConfig {
   gatewayKey?: string;
   /** Hyperspace profile when starting a node (inference | embedding | relay | storage | full) */
   profile?: "inference" | "embedding" | "relay" | "storage" | "full";
+}
+
+/** Cardano — ADA escrow lifecycle for FiveClaw job payments via FiveClawPay Plutus validator */
+export interface CardanoConfig {
+  /** Archon backend URL for /api/cardano/* routes, e.g. https://archon-nexus-api.fly.dev */
+  archonBackendUrl: string;
+  /** Gateway key for Archon API authentication */
+  gatewayKey: string;
+  /** Bech32 addr1... address where ADA payouts land (CARDANO_FIVECLAW_ADDR) */
+  recipientAddr: string;
+  /** Cardano network: mainnet | preprod | preview (matches BLOCKFROST_NETWORK) */
+  network?: "mainnet" | "preprod" | "preview";
 }
 
 export interface PricingConfig {
@@ -80,6 +93,7 @@ export interface FiveClawConfig {
   xDragon?: XDragonConfig;
   oversight?: OversightConfig;
   hyperspace?: HyperspaceConfig;
+  cardano?: CardanoConfig;
 }
 
 /** Backwards-compatible alias — existing imports continue to work */

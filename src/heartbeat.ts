@@ -15,6 +15,7 @@ import {
   stopHyperspaceContribution,
   isContributing,
 } from "./hyperspace/index.js";
+import { CardanoEscrowClient } from "./cardano/escrow.js";
 
 export interface HeartbeatState {
   running: boolean;
@@ -52,6 +53,7 @@ const TASK_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000;
 export function createHeartbeat(
   config: FiveClawConfig,
   llm: LLMProvider,
+  cardano?: CardanoEscrowClient,
 ) {
   initOversight(config);
   initHyperspace(config.hyperspace);
@@ -235,6 +237,11 @@ export function createHeartbeat(
           timestamp: new Date().toISOString(),
         });
 
+        // If a Cardano escrow is registered for this job, claim the locked ADA
+        if (cardano?.hasPendingEscrow(task.id)) {
+          void claimCardanoEscrow(task.id, result);
+        }
+
         for (const tc of result.toolCalls) {
           emit({
             type: "tool_call",
@@ -390,6 +397,42 @@ export function createHeartbeat(
       state.lastStudyTime = Date.now();
     } finally {
       studying = false;
+    }
+  }
+
+  // --- Cardano escrow claim (fires after loop completes successfully) ---
+
+  async function claimCardanoEscrow(jobId: string, result: LoopResult) {
+    if (!cardano) return;
+    const privKey = process.env.FIVECLAW_CARDANO_PRIV_KEY ?? "";
+    if (!privKey) {
+      emit({ type: "error", taskId: jobId, message: "Cardano claim skipped — FIVECLAW_CARDANO_PRIV_KEY not set" });
+      appendLog(`Cardano claim skipped for ${jobId}: FIVECLAW_CARDANO_PRIV_KEY not set`);
+      return;
+    }
+    const toolSummary = result.toolCalls.map((tc) => tc.name).join(",");
+    const completionHash = CardanoEscrowClient.hashDeliverable(result.reasoning, toolSummary);
+
+    emit({ type: "ws", taskId: jobId, message: `Cardano claim initiated (hash=${completionHash.slice(0, 16)}...)` });
+    appendLog(`Cardano claim initiated for ${jobId} — hash=${completionHash.slice(0, 16)}`);
+
+    try {
+      const claimResult = await cardano.claim(jobId, completionHash, privKey);
+      if (claimResult.success) {
+        const detail = claimResult.txHash
+          ? `tx=${claimResult.txHash}`
+          : "CBOR returned for manual submission";
+        emit({ type: "ws", taskId: jobId, message: `Cardano ADA claimed — ${detail}` });
+        appendLog(`Cardano claim success for ${jobId}: ${detail}`);
+        emitOversightEvent({ type: "task_complete", taskId: jobId, agentId: "fiveclaw", details: { cardanoClaim: detail } });
+      } else {
+        emit({ type: "error", taskId: jobId, message: `Cardano claim failed: ${claimResult.error}` });
+        appendLog(`Cardano claim failed for ${jobId}: ${claimResult.error}`);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      emit({ type: "error", taskId: jobId, message: `Cardano claim error: ${msg}` });
+      appendLog(`Cardano claim error for ${jobId}: ${msg}`);
     }
   }
 

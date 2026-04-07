@@ -222,6 +222,54 @@ function createOpenAICompatibleProvider(
   };
 }
 
+/**
+ * Archon provider — routes LLM calls through the Archon xDragon chain.
+ * Uses ARCHON_GATEWAY_KEY from config.apiKey (set by autoInitFromEnv).
+ * Kaggle/Ollama pool is automatically preferred when alive (CODE tasks → T4 GPU).
+ * Tool calling is not supported in single-shot mode — the loop exits after one turn.
+ */
+function createArchonProvider(config: LLMConfig): LLMProvider {
+  const backendUrl = process.env.ARCHON_BACKEND_URL ?? "https://archon-nexus-api.fly.dev";
+  return {
+    async chat(messages) {
+      const systemMsg = messages.find(m => m.role === "system");
+      const userMsg = [...messages].reverse().find(m => m.role === "user");
+
+      const systemPart = typeof systemMsg?.content === "string" ? systemMsg.content + "\n\n" : "";
+      const userPart = typeof userMsg?.content === "string" ? userMsg.content : JSON.stringify(userMsg?.content ?? "");
+      const prompt = systemPart + userPart;
+
+      const res = await fetch(`${backendUrl}/api/xdragon/execute`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-archon-gateway-key": config.apiKey,
+        },
+        body: JSON.stringify({
+          agentId: "fiveclaw",
+          model: config.model || "deepseek-coder-v2:16b",
+          prompt,
+        }),
+        signal: AbortSignal.timeout(120_000),
+      });
+
+      if (!res.ok) {
+        const err = await res.text().catch(() => "(no body)");
+        throw new Error(`Archon xDragon ${res.status}: ${err}`);
+      }
+
+      const data = await res.json() as { response?: string; content?: string };
+      const text = data.response ?? data.content ?? "";
+
+      return {
+        content: [{ type: "text", text }],
+        stopReason: "end_turn",
+        usage: { inputTokens: 0, outputTokens: 0 },
+      };
+    },
+  };
+}
+
 export function createLLMProvider(config: LLMConfig): LLMProvider {
   switch (config.provider) {
     case "anthropic":
@@ -236,6 +284,8 @@ export function createLLMProvider(config: LLMConfig): LLMProvider {
         config,
         "https://openrouter.ai/api/v1",
       );
+    case "archon":
+      return createArchonProvider(config);
     default:
       throw new Error(`Unknown LLM provider: ${config.provider}`);
   }
