@@ -5,7 +5,3 @@ dist
 .gitignore
 *.md
 test
-vitest.config.ts
-vite.config.ts
-tsup.config.ts
-tsconfig.json
