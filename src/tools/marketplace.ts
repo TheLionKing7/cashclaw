@@ -125,6 +125,25 @@ export const listBounties: Tool = {
   },
 };
 
+export const claimPayment: Tool = {
+  definition: {
+    name: "claim_payment",
+    description: "Claim payment for a submitted task after the 24-hour review window has expired and the client has not responded. Only works after 24h since submission.",
+    input_schema: {
+      type: "object",
+      properties: {
+        task_id: { type: "string", description: "The task ID to claim payment for" },
+      },
+      required: ["task_id"],
+    },
+  },
+  async execute(input) {
+    const taskId = requireString(input, "task_id");
+    await cli.claimPayment(taskId);
+    return { success: true, data: `Payment claimed for task ${taskId}` };
+  },
+};
+
 export const claimBounty: Tool = {
   definition: {
     name: "claim_bounty",

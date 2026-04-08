@@ -184,3 +184,7 @@ export async function claimBounty(
   if (message) args.push("--message", message);
   await mltl<unknown>(args);
 }
+
+export async function claimPayment(taskId: string): Promise<void> {
+  await mltl<unknown>(["claim", "--task", taskId]);
+}

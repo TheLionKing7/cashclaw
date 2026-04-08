@@ -9,6 +9,7 @@ import {
   sendMessage,
   listBounties,
   claimBounty,
+  claimPayment,
 } from "./marketplace.js";
 import {
   checkWalletBalance,
@@ -27,6 +28,7 @@ const BASE_TOOLS: Tool[] = [
   sendMessage,
   listBounties,
   claimBounty,
+  claimPayment,
   checkWalletBalance,
   readFeedbackHistory,
   memorySearch,

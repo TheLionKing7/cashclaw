@@ -164,6 +164,19 @@ function createServer(ctx: ServerContext): http.Server {
       return;
     }
 
+    // Serve skill file for Moltlaunch agent discovery
+    if (url.pathname === "/skill.md") {
+      const skillPath = path.resolve(import.meta.dirname ?? __dirname, "..", "skill.md");
+      if (fs.existsSync(skillPath)) {
+        res.writeHead(200, { "Content-Type": "text/markdown; charset=utf-8" });
+        fs.createReadStream(skillPath).pipe(res);
+      } else {
+        res.writeHead(404);
+        res.end("Not found");
+      }
+      return;
+    }
+
     serveStatic(url.pathname, res);
   });
 

@@ -263,7 +263,43 @@ export function createHeartbeat(
 
   // --- Polling (fallback / sync check) ---
 
+  // Auto-claim submitted tasks after 24h timeout if client hasn't responded
+  const CLAIM_TIMEOUT_MS = 24 * 60 * 60 * 1000; // 24 hours
+  const claimedTasks = new Set<string>();
+
+  async function maybeClaimExpiredTasks() {
+    const now = Date.now();
+    for (const [, task] of state.activeTasks) {
+      if (task.status !== "submitted") continue;
+      if (!task.submittedAt) continue;
+      if (claimedTasks.has(task.id)) continue;
+      if (processing.has(task.id)) continue;
+      if (now - task.submittedAt < CLAIM_TIMEOUT_MS) continue;
+
+      claimedTasks.add(task.id);
+      emit({ type: "loop_start", taskId: task.id, message: "Auto-claiming payment after 24h timeout" });
+      appendLog(`Auto-claiming task ${task.id} — 24h timeout elapsed`);
+
+      try {
+        await cli.claimPayment(task.id);
+        emit({ type: "loop_complete", taskId: task.id, message: "Payment claimed after 24h timeout" });
+        appendLog(`Payment claimed for task ${task.id}`);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        // Not ready yet (too early) — remove from claimed set so we retry
+        if (msg.toLowerCase().includes("not ready") || msg.toLowerCase().includes("too early")) {
+          claimedTasks.delete(task.id);
+        }
+        emit({ type: "error", taskId: task.id, message: `Claim failed: ${msg}` });
+        appendLog(`Claim failed for task ${task.id}: ${msg}`);
+      }
+    }
+  }
+
   async function tick() {
+    // Attempt to claim any submitted tasks past 24h timeout
+    await maybeClaimExpiredTasks();
+
     try {
       const tasks = await cli.getInbox(config.agentId);
       state.lastPoll = Date.now();

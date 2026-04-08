@@ -23,6 +23,9 @@ RUN npm ci --omit=dev
 # Compiled agent + UI
 COPY --from=builder /app/dist ./dist
 
+# Skill file (served at /skill.md for Moltlaunch agent discovery)
+COPY skill.md ./skill.md
+
 # Bundled moltlaunch CLI (marketplace stub)
 COPY packages ./packages
 
